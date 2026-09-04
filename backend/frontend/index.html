@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Shorts Generator</title>
+<style>
+  :root {
+    --bg: #0f0f12;
+    --card: #17171c;
+    --accent: #7c5cff;
+    --accent2: #ff5c9d;
+    --text: #f2f2f5;
+    --muted: #9a9aa5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px 60px;
+  }
+  .app { width: 100%; max-width: 420px; }
+  h1 {
+    font-size: 22px;
+    margin: 8px 0 4px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  p.sub { color: var(--muted); font-size: 14px; margin-top: 0; margin-bottom: 24px; }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  input[type=text] {
+    width: 100%;
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid #2a2a33;
+    background: #0f0f12;
+    color: var(--text);
+    font-size: 15px;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); }
+  button {
+    width: 100%;
+    margin-top: 14px;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    color: white;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; }
+  .status {
+    margin-top: 18px;
+    font-size: 14px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid #333;
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error { color: #ff6b6b; margin-top: 14px; font-size: 14px; }
+  video {
+    width: 100%;
+    border-radius: 12px;
+    margin-top: 18px;
+    max-height: 60vh;
+  }
+  .reason {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  a.download-btn {
+    display: block;
+    text-align: center;
+    text-decoration: none;
+    margin-top: 12px;
+    padding: 14px;
+    border-radius: 10px;
+    background: #1f1f27;
+    color: var(--text);
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>Shorts Generator</h1>
+    <p class="sub">Paste a video link. Get a 45–50s vertical clip with the strongest hook.</p>
+
+    <div class="card">
+      <input id="url" type="text" placeholder="https://youtube.com/watch?v=..." autocapitalize="off" autocorrect="off">
+      <button id="go">Generate Short</button>
+
+      <div id="status" class="status" style="display:none;">
+        <div class="spinner"></div>
+        <span id="status-text">Working...</span>
+      </div>
+      <div id="error" class="error" style="display:none;"></div>
+
+      <video id="preview" controls playsinline style="display:none;"></video>
+      <p id="reason" class="reason" style="display:none;"></p>
+      <a id="download" class="download-btn" style="display:none;" download="short.mp4">Download</a>
+    </div>
+  </div>
+
+<script>
+const API = "";
+
+const urlInput = document.getElementById("url");
+const goBtn = document.getElementById("go");
+const statusEl = document.getElementById("status");
+const statusText = document.getElementById("status-text");
+const errorEl = document.getElementById("error");
+const preview = document.getElementById("preview");
+const reasonEl = document.getElementById("reason");
+const downloadEl = document.getElementById("download");
+
+let poller = null;
+
+function reset() {
+  errorEl.style.display = "none";
+  preview.style.display = "none";
+  reasonEl.style.display = "none";
+  downloadEl.style.display = "none";
+  if (poller) clearInterval(poller);
+}
+
+goBtn.addEventListener("click", async () => {
+  const url = urlInput.value.trim();
+  if (!url) return;
+  reset();
+  goBtn.disabled = true;
+  statusEl.style.display = "flex";
+  statusText.textContent = "Starting...";
+
+  try {
+    const res = await fetch(`${API}/api/process`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    const { job_id } = await res.json();
+
+    poller = setInterval(async () => {
+      const s = await fetch(`${API}/api/status/${job_id}`).then(r => r.json());
+      statusText.textContent = s.message || s.status;
+
+      if (s.status === "error") {
+        clearInterval(poller);
+        goBtn.disabled = false;
+        statusEl.style.display = "none";
+        errorEl.style.display = "block";
+        errorEl.textContent = s.error || "Something went wrong.";
+      }
+
+      if (s.ready) {
+        clearInterval(poller);
+        goBtn.disabled = false;
+        statusEl.style.display = "none";
+        const fileUrl = `${API}/api/download/${job_id}`;
+        preview.src = fileUrl;
+        preview.style.display = "block";
+        downloadEl.href = fileUrl;
+        downloadEl.style.display = "block";
+        if (s.highlight && s.highlight.reason) {
+          reasonEl.textContent = "Why this clip: " + s.highlight.reason;
+          reasonEl.style.display = "block";
+        }
+      }
+    }, 2000);
+  } catch (e) {
+    goBtn.disabled = false;
+    statusEl.style.display = "none";
+    errorEl.style.display = "block";
+    errorEl.textContent = "Failed to start job.";
+  }
+});
+</script>
+</body>
+</html>
