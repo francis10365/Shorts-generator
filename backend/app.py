@@ -86,5 +86,5 @@ def download(job_id: str):
     return FileResponse(job["file_path"], media_type="video/mp4", filename="short.mp4")
 
 
-frontend_dir = Path(__file__).parent.parent / "frontend"
+frontend_dir = Path(__file__).parent / "frontend"
 app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
