@@ -54,6 +54,7 @@ def download_video(url: str, job_id: str) -> Path:
         "merge_output_format": "mp4",
         "quiet": True,
         "noprogress": True,
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
