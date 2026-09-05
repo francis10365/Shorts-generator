@@ -14,6 +14,7 @@ Each step is a plain function so you can test/swap pieces independently
 import json
 import os
 import subprocess
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,21 +47,60 @@ class TranscriptSegment:
     text: str
 
 
+def _cookiefile_from_env() -> str | None:
+    cookies_text = os.environ.get("YT_COOKIES")
+    if not cookies_text:
+        return None
+    cookie_path = WORK_DIR / "yt_cookies.txt"
+    cookie_path.write_text(cookies_text)
+    return str(cookie_path)
+
+
 def download_video(url: str, job_id: str) -> Path:
     out_path = WORK_DIR / f"{job_id}_source.mp4"
-    ydl_opts = {
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+
+    base_opts = {
         "outtmpl": str(out_path),
         "merge_output_format": "mp4",
         "quiet": True,
         "noprogress": True,
-        "extractor_args": {"youtube": {"player_client": ["android"]}},
+        "retries": 10,
+        "fragment_retries": 10,
+        "socket_timeout": 30,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    if not out_path.exists():
-        raise RuntimeError("Download finished but output file was not found.")
-    return out_path
+    cookiefile = _cookiefile_from_env()
+    if cookiefile:
+        base_opts["cookiefile"] = cookiefile
+
+    attempts = [
+        {"format": "best[ext=mp4][height<=480]/best[height<=480]/best",
+         "extractor_args": {"youtube": {"player_client": ["ios"]}}},
+        {"format": "best[ext=mp4][height<=480]/best[height<=480]/best",
+         "extractor_args": {"youtube": {"player_client": ["android"]}}},
+        {"format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+         "extractor_args": {"youtube": {"player_client": ["web"]}}},
+    ]
+
+    last_error = None
+    for i, attempt_opts in enumerate(attempts):
+        if out_path.exists():
+            out_path.unlink()
+        ydl_opts = {**base_opts, **attempt_opts}
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            if out_path.exists():
+                return out_path
+        except Exception as e:  # noqa: BLE001
+            last_error = e
+            if i < len(attempts) - 1:
+                time.sleep(2)
+            continue
+
+    raise RuntimeError(
+        f"Could not download this video after trying multiple methods. "
+        f"YouTube may be blocking this server. Last error: {last_error}"
+    )
 
 
 def transcribe(video_path: Path) -> list[TranscriptSegment]:
